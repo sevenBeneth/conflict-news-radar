@@ -1,0 +1,159 @@
+# ============================================================================
+#  地区冲突资讯雷达（Conflict News Radar）· Docker Compose
+# ============================================================================
+#  四个服务：
+#    mysql     —— 数据库（MySQL 8，空间能力由原生 POINT + SPATIAL INDEX 承担）
+#    backend   —— REST 接口与 WebSocket 推送
+#    workers   —— 采集器（新闻 RSS / 航班 / 船舶 / 冲突事件 / 异常检测）
+#    frontend  —— 地图与情报界面
+#
+#  ─── 镜像源说明 ─────────────────────────────────────────────────────────────
+#  基础镜像使用国内镜像代理前缀，避免 Docker Hub 拉取超时。
+#  若网络可直连 Docker Hub，把 `docker.m.daocloud.io/library/` 前缀去掉即可
+#  （例如改为 mysql:8.0）。也可在 Docker Desktop 中配置 registry-mirrors。
+#
+#  ─── 使用前请先执行 ─────────────────────────────────────────────────────────
+#      copy .env.example .env
+#      docker compose up --build
+#  数据库结构在 MySQL 首次启动时由 /docker-entrypoint-initdb.d 自动执行
+#  （01-schema.sql 建表 → 02-seed.sql 灌入样例数据）。
+# ============================================================================
+
+services:
+  # ─── MySQL 8 ───────────────────────────────────────────────────────────────
+  mysql:
+    # 国内镜像代理前缀；可直连 Docker Hub 时改为 mysql:8.0
+    image: docker.1panel.live/library/mysql:8.0
+    container_name: cnr_mysql
+    restart: unless-stopped
+    command:
+      # 中文与生僻字支持；空间索引需要 InnoDB
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-authentication-plugin=mysql_native_password
+      # 时区统一为 UTC，与 DATETIME 存储语义一致
+      - --default-time-zone=+00:00
+    # 关于中文乱码：entrypoint 执行 initdb 脚本时，mysql 客户端会先发
+    # `SET NAMES latin1`（客户端默认），单靠服务端字符集参数无法纠正，
+    # 因为 SET NAMES 会覆盖服务端默认。可靠做法是在 SQL 文件内显式
+    # `SET NAMES utf8mb4;`（见 database/01-schema.sql 与 02-seed.sql 顶部），
+    # 它在该语句之后执行，因而能正确生效。
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cnr}
+      MYSQL_USER: ${MYSQL_USER:-cnr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cnr_password}
+      TZ: UTC
+    # ─── 端口映射（默认关闭）─────────────────────────────────────────────────
+    #  容器之间通过 compose 网络按服务名 `mysql` 直连（见下方 MYSQL_HOST: mysql），
+    #  后端与采集器不需要宿主机的 3306，因此本段并非必需。
+    #  另外，若宿主机已运行本机 MySQL 服务，映射会与之抢占 3306 而启动失败：
+    #      Bind for 0.0.0.0:3306 failed: port is already allocated
+    #  仅当需要用本机客户端直连容器内数据库排查时，再取消注释并改用其他端口。
+    #
+    # ports:
+    #   - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 按文件名字母序执行：01 建结构 → 02 灌样例数据
+      - ./database/01-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/02-seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # ─── 后端 API + WebSocket ──────────────────────────────────────────────────
+  backend:
+    build:
+      # 构建上下文为仓库根目录：backend 与 workers 共用 shared/ 数据库连接层
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: cnr_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${BACKEND_PORT:-4000}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cnr}
+      MYSQL_USER: ${MYSQL_USER:-cnr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cnr_password}
+      # Ollama 运行在宿主机时使用 host.docker.internal；
+      # 若 Ollama 也在容器内，改为服务名即可。
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      TZ: UTC
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─── 数据采集器 ────────────────────────────────────────────────────────────
+  workers:
+    build:
+      # 同上：上下文为仓库根目录，以便取到 shared/
+      context: .
+      dockerfile: workers/Dockerfile
+    container_name: cnr_workers
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cnr}
+      MYSQL_USER: ${MYSQL_USER:-cnr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cnr_password}
+      # 新闻源配置（详见 workers/src/news/rss.ts 与 .env.example）
+      NEWS_PROVIDER: ${NEWS_PROVIDER:-rss}
+      NEWS_RSS_SOURCES: ${NEWS_RSS_SOURCES:-}
+      NEWS_STALE_WARN_HOURS: ${NEWS_STALE_WARN_HOURS:-48}
+      OPENSKY_USERNAME: ${OPENSKY_USERNAME:-}
+      OPENSKY_PASSWORD: ${OPENSKY_PASSWORD:-}
+      ACLED_API_KEY: ${ACLED_API_KEY:-}
+      ACLED_EMAIL: ${ACLED_EMAIL:-}
+      AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      POLL_INTERVAL_AIRCRAFT: ${POLL_INTERVAL_AIRCRAFT:-30000}
+      POLL_INTERVAL_SHIPS: ${POLL_INTERVAL_SHIPS:-60000}
+      POLL_INTERVAL_CONFLICTS: ${POLL_INTERVAL_CONFLICTS:-300000}
+      POLL_INTERVAL_NEWS: ${POLL_INTERVAL_NEWS:-120000}
+      TZ: UTC
+    depends_on:
+      mysql:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ─── 前端界面 ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:4000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:4000}
+        # 天地图 Key 在构建期内联进前端产物，修改后需重新 build
+        NEXT_PUBLIC_TIANDITU_KEY: ${NEXT_PUBLIC_TIANDITU_KEY:-}
+    container_name: cnr_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      TZ: UTC
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+    name: cnr_mysql_data
