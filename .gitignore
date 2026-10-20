@@ -56,3 +56,7 @@ tmp/
 # ─── 实验文档不入库（含实名的作业材料，仅本地保存）────────────────────────────
 docs/
 *.docx
+
+# Local knowledge and experiment traces
+backend/data/
+backend/news-draft.json

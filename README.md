@@ -1,5 +1,7 @@
 # 地区冲突资讯雷达 · Conflict News Radar
 
+> 当前分支为 **DeepSeek + 本地 RAG 非正式演示版**，AI 入口已替换为云端 DeepSeek，支持有／无 RAG 对比。先阅读 [演示说明](experiments/README.md)；下文 Ollama 描述为原版架构背景。
+
 面向个人用户的**本地部署**地区冲突资讯聚合与可视化工具。
 
 它把分散、无地理标注的中文新闻，转成带**时间、地点、摘要与原文链接**的可视化地图，
@@ -363,3 +365,9 @@ MySQL 官方镜像的 entrypoint 执行初始化脚本时，`mysql` 客户端的
 ## 许可
 
 MIT License — 详见 [LICENSE](LICENSE)。
+
+## 非正式 DeepSeek / RAG 对比演示
+
+当前演示分支使用本地文本切分与 BM25 知识库、DeepSeek 云端问答。
+启动、资料准备、固定问题与验证说明见 [experiments/README.md](experiments/README.md)。
+独立页面 `/demo` 支持直接问答与 RAG 对比，无数据库演示使用 `npm run dev:demo --prefix backend`。
