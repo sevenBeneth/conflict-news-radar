@@ -371,3 +371,7 @@ MIT License — 详见 [LICENSE](LICENSE)。
 当前演示分支使用本地文本切分与 BM25 知识库、DeepSeek 云端问答。
 启动、资料准备、固定问题与验证说明见 [experiments/README.md](experiments/README.md)。
 独立页面 `/demo` 支持直接问答与 RAG 对比，无数据库演示使用 `npm run dev:demo --prefix backend`。
+
+## 实验6 新闻统计 Agent
+
+新增单Agent与运行时Harness，支持本地新闻查询、媒体分组统计、确认后保存简报。运行方式和权限边界见 [实验6说明](experiments/experiment6/README.md)。

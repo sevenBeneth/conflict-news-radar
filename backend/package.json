@@ -10,7 +10,10 @@
     "lint": "eslint src --ext .ts",
     "rag": "tsx src/scripts/rag.ts",
     "test:rag": "tsx --test src/services/rag.test.ts",
-    "dev:demo": "tsx watch src/demo.ts"
+    "dev:demo": "tsx watch src/demo.ts",
+    "agent": "tsx src/scripts/agent.ts",
+    "test:agent": "tsx --test src/agent/harness.test.ts",
+    "agent:verify": "tsx src/scripts/agent-verify.ts"
   },
   "dependencies": {
     "axios": "^1.7.7",
