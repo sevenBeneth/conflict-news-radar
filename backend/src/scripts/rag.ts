@@ -92,37 +92,33 @@ async function main() {
       dataDir(),
       `evaluation-${process.env.PROMPT_VERSION || "v3"}-${Date.now()}`,
     );
-    for (const q of questions)
-      for (const mode of ["direct", "rag"] as const) {
-        try {
-          results.push({
-            ...q,
-            mode,
-            result: await answer({
-              query: q.question,
-              mode,
-              promptVersion:
-                process.env.PROMPT_VERSION === "v1"
-                  ? "v1"
-                  : process.env.PROMPT_VERSION === "v2"
-                    ? "v2"
-                    : "v3",
-            }),
-            humanJudgment: null,
-          });
-        } catch (e) {
-          results.push({
-            ...q,
-            mode,
-            error: (e as Error).message,
-            humanJudgment: null,
-          });
-        }
-        await writeFile(`${output}.json`, JSON.stringify(results, null, 2));
-        console.log(
-          `${q.id} ${mode}: ${"result" in results[results.length - 1] ? "OK" : "FAILED"}`,
-        );
+    for (const q of questions) {
+      try {
+        results.push({
+          ...q,
+          result: await answer({
+            query: q.question,
+            promptVersion:
+              process.env.PROMPT_VERSION === "v1"
+                ? "v1"
+                : process.env.PROMPT_VERSION === "v2"
+                  ? "v2"
+                  : "v3",
+          }),
+          humanJudgment: null,
+        });
+      } catch (e) {
+        results.push({
+          ...q,
+          error: (e as Error).message,
+          humanJudgment: null,
+        });
       }
+      await writeFile(`${output}.json`, JSON.stringify(results, null, 2));
+      console.log(
+        `${q.id}: ${"result" in results[results.length - 1] ? "OK" : "FAILED"}`,
+      );
+    }
     if (results.some((r) => "error" in r)) process.exitCode = 1;
     await writeFile(`${output}.json`, JSON.stringify(results, null, 2));
     const cell = (v: unknown) =>
@@ -131,11 +127,11 @@ async function main() {
         .replace(/\r?\n/g, "<br>");
     const rows = results.map(
       (r) =>
-        `| ${cell(r.id)} | ${cell(r.mode)} | ${cell("result" in r ? r.result.response : r.error)} | ${cell("result" in r ? r.result.elapsedMs : "")} | ${cell("result" in r ? r.result.usage?.total_tokens : "")} | 待人工判断 |`,
+        `| ${cell(r.id)} | ${cell("result" in r ? r.result.response : r.error)} | ${cell("result" in r ? r.result.elapsedMs : "")} | ${cell("result" in r ? r.result.usage?.total_tokens : "")} | 待人工判断 |`,
     );
     await writeFile(
       `${output}.md`,
-      `# 两组问答对比（人工评分待完成）\n\n知识库：${kb.version}\n\n| 问题 | 模式 | 回答或错误 | 毫秒 | Token | 正确性／遗漏／无依据内容／引用支持 |\n|---|---|---|---|---|---|\n${rows.join("\n")}\n`,
+      `# 新闻问答评估（人工评分待完成）\n\n知识库：${kb.version}\n\n| 问题 | 回答或错误 | 毫秒 | Token | 正确性／遗漏／无依据内容／引用支持 |\n|---|---|---|---|---|\n${rows.join("\n")}\n`,
     );
     console.log(`${output}.json\n${output}.md`);
   } else

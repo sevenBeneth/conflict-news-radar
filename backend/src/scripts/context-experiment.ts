@@ -10,7 +10,6 @@ async function main() {
   for (const contextFormat of ["full", "compact"] as const) {
     const result = await answer({
       query,
-      mode: "rag",
       promptVersion: "v3",
       contextFormat,
     });

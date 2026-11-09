@@ -11,5 +11,5 @@ app.use("/ai", rateLimit({ windowMs: 60000, limit: 30 }), ai);
 app.use(errorHandler);
 const port = Number(process.env.PORT || 4000);
 app.listen(port, "127.0.0.1", () =>
-  console.log(`非正式 AI 演示服务：http://127.0.0.1:${port}（不依赖 MySQL）`),
+  console.log(`新闻问答服务：http://127.0.0.1:${port}（不依赖 MySQL）`),
 );

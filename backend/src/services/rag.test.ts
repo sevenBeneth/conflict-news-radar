@@ -7,6 +7,8 @@ import axios, { AxiosError } from "axios";
 import { buildKnowledge, splitText, retrieve, Document } from "./knowledge";
 import { answer, AnswerError } from "./answer";
 import { estimateCost } from "./cost";
+import express from "express";
+import aiRouter from "../routes/ai";
 const fixture: Document = {
   id: "test-1",
   title: "测试资料：港口停航",
@@ -43,7 +45,7 @@ test("local knowledge, independent contexts, citation validation and network fai
       },
     );
     await t.test(
-      "RAG contains evidence while direct requests contain none",
+      "every answer retrieves evidence and uses an independent context",
       async () => {
         axios.defaults.adapter = async (config) => {
           const body = JSON.parse(config.data);
@@ -53,9 +55,8 @@ test("local knowledge, independent contexts, citation validation and network fai
           assert.deepEqual(body.thinking, { type: "disabled" });
           const context = JSON.parse(body.messages[1].content);
           assert.equal(body.messages.length, 2);
-          const rag = Array.isArray(context.sources);
-          if (rag) assert.equal(context.sources.length, 1);
-          else assert.equal(context.knowledgeVersion, undefined);
+          assert.equal(context.sources.length, 1);
+          assert.equal(context.knowledgeVersion, kb.version);
           return {
             status: 200,
             statusText: "OK",
@@ -67,10 +68,8 @@ test("local knowledge, independent contexts, citation validation and network fai
                   message: {
                     content: JSON.stringify({
                       status: "answered",
-                      answer: rag
-                        ? "港口因风暴暂停航运。[S1]"
-                        : "无法确定实时情况。",
-                      citations: rag ? ["S1"] : [],
+                      answer: "港口因风暴暂停航运。[S1]",
+                      citations: ["S1"],
                       follow_up: "",
                     }),
                   },
@@ -80,13 +79,93 @@ test("local knowledge, independent contexts, citation validation and network fai
             },
           };
         };
-        const rag = await answer({ query: "港口航运为什么暂停", mode: "rag" });
-        const direct = await answer({
+        const rag = await answer({ query: "港口航运为什么暂停" });
+        const next = await answer({
           query: "港口航运为什么暂停",
-          mode: "direct",
         });
         assert.equal(rag.sources.length, 1);
-        assert.equal(direct.sources.length, 0);
+        assert.equal(next.sources.length, 1);
+        assert.notEqual(rag.runId, next.runId);
+      },
+    );
+    await t.test(
+      "HTTP defaults to retrieval and rejects removed modes before model calls",
+      async () => {
+        let calls = 0;
+        axios.defaults.adapter = async (config) => {
+          calls++;
+          const context = JSON.parse(
+            JSON.parse(config.data).messages[1].content,
+          );
+          assert.equal(context.sources[0].citationId, "S1");
+          return {
+            status: 200,
+            statusText: "OK",
+            headers: {},
+            config,
+            data: {
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      status: "answered",
+                      answer: "风暴导致停航。[S1]",
+                      citations: ["S1"],
+                      follow_up: "",
+                    }),
+                  },
+                },
+              ],
+            },
+          };
+        };
+        const app = express();
+        app.use(express.json());
+        app.use("/ai", aiRouter);
+        const server = app.listen(0, "127.0.0.1");
+        await new Promise<void>((resolve) => server.once("listening", resolve));
+        const address = server.address();
+        assert.ok(address && typeof address !== "string");
+        const url = `http://127.0.0.1:${address.port}/ai/analyze`;
+        const post = (body: object) =>
+          fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+        try {
+          for (const mode of [undefined, "rag"]) {
+            const response = await post({ query: "港口航运为什么暂停", mode });
+            assert.equal(response.status, 200);
+            assert.equal(
+              ((await response.json()) as { sources: unknown[] }).sources
+                .length,
+              1,
+            );
+          }
+          assert.equal(calls, 2);
+          for (const mode of ["direct", "compare"]) {
+            assert.equal(
+              (await post({ query: "港口航运为什么暂停", mode })).status,
+              400,
+            );
+          }
+          assert.equal(
+            (
+              await post({
+                query: "港口",
+                context: { from: "2026-10-20", to: "2026-10-19" },
+              })
+            ).status,
+            400,
+          );
+          assert.equal(calls, 2);
+        } finally {
+          server.closeAllConnections();
+          await new Promise<void>((resolve, reject) =>
+            server.close((e) => (e ? reject(e) : resolve())),
+          );
+        }
       },
     );
     await t.test("invented citations are rejected", async () => {
@@ -111,7 +190,7 @@ test("local knowledge, independent contexts, citation validation and network fai
         },
       });
       await assert.rejects(
-        answer({ query: "港口航运", mode: "rag" }),
+        answer({ query: "港口航运" }),
         (e: unknown) => e instanceof AnswerError && e.status === 502,
       );
     });
@@ -123,10 +202,7 @@ test("local knowledge, independent contexts, citation validation and network fai
         config,
         data: { choices: [{ message: { content: "not json" } }] },
       });
-      await assert.rejects(
-        answer({ query: "港口航运", mode: "rag" }),
-        /有效 JSON/,
-      );
+      await assert.rejects(answer({ query: "港口航运" }), /有效 JSON/);
     });
     await t.test(
       "cached input cost and unknown models are handled explicitly",
@@ -152,10 +228,7 @@ test("local knowledge, independent contexts, citation validation and network fai
         axios.defaults.adapter = async () => {
           throw new AxiosError("refused", "ECONNREFUSED");
         };
-        await assert.rejects(
-          answer({ query: "港口航运", mode: "direct" }),
-          /ECONNREFUSED/,
-        );
+        await assert.rejects(answer({ query: "港口航运" }), /ECONNREFUSED/);
         const logs = await Promise.all(
           (await readdir(path.join(dir, "runs"))).map((f) =>
             readFile(path.join(dir, "runs", f), "utf8"),
@@ -172,12 +245,12 @@ test("local knowledge, independent contexts, citation validation and network fai
           throw new AxiosError("timeout", "ECONNABORTED");
         };
         await assert.rejects(
-          answer({ query: "港口", mode: "direct" }),
+          answer({ query: "港口" }),
           (e: unknown) => e instanceof AnswerError && e.status === 504,
         );
         delete process.env.DEEPSEEK_API_KEY;
         await assert.rejects(
-          answer({ query: "港口", mode: "direct" }),
+          answer({ query: "港口" }),
           (e: unknown) => e instanceof AnswerError && e.status === 503,
         );
       },

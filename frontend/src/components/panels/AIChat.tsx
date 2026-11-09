@@ -26,85 +26,53 @@ interface Result {
   runId: string;
   knowledgeVersion: string;
 }
-interface Card {
-  mode: "direct" | "rag";
-  result?: Result;
-  error?: string;
-}
 interface Round {
   id: string;
   question: string;
-  cards: Card[];
+  result?: Result;
+  error?: string;
 }
-const labels = { direct: "直接问答", rag: "RAG 问答" };
 const statusLabels: Record<string, string> = {
   answered: "已回答",
   insufficient_evidence: "资料不足",
   needs_clarification: "需要补充",
   out_of_scope: "超出范围",
 };
-export default function AIChat({ wide = false }: { wide?: boolean }) {
+export default function AIChat() {
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [mode, setMode] = useState<"direct" | "rag" | "compare">("compare");
   const [rounds, setRounds] = useState<Round[]>([]);
   const [busy, setBusy] = useState(false);
-  const [knowledge, setKnowledge] = useState("");
   async function send() {
     if (busy || !query.trim()) return;
     const question = query.trim();
     const id = crypto.randomUUID();
-    const modes: Array<"direct" | "rag"> =
-      mode === "compare" ? ["direct", "rag"] : [mode];
-    setRounds((old) => [
-      ...old,
-      { id, question, cards: modes.map((mode) => ({ mode })) },
-    ]);
+    setRounds((old) => [...old, { id, question }]);
     setBusy(true);
     setQuery("");
     try {
-      await Promise.all(
-        modes.map(async (chosen) => {
-          let card: Card;
-          try {
-            const { data } = await axios.post<Result>(
-              `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"}/ai/analyze`,
-              {
-                query: question,
-                mode: chosen,
-                context: {
-                  region,
-                  from: from ? new Date(`${from}T00:00:00`).toISOString() : "",
-                  to: to ? new Date(`${to}T23:59:59.999`).toISOString() : "",
-                },
-              },
-              { timeout: 75000 },
-            );
-            card = { mode: chosen, result: data };
-            if (chosen === "rag") setKnowledge(data.knowledgeVersion);
-          } catch (e) {
-            card = {
-              mode: chosen,
-              error: axios.isAxiosError(e)
-                ? e.response?.data?.error ||
-                  "请求失败，请检查后端与 DeepSeek 配置。"
-                : "请求失败。",
-            };
-          }
-          setRounds((old) =>
-            old.map((r) =>
-              r.id === id
-                ? {
-                    ...r,
-                    cards: r.cards.map((c) => (c.mode === chosen ? card : c)),
-                  }
-                : r,
-            ),
-          );
-        }),
+      const { data } = await axios.post<Result>(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000"}/ai/analyze`,
+        {
+          query: question,
+          context: {
+            region,
+            from: from ? new Date(`${from}T00:00:00`).toISOString() : "",
+            to: to ? new Date(`${to}T23:59:59.999`).toISOString() : "",
+          },
+        },
+        { timeout: 75000 },
       );
+      setRounds((old) =>
+        old.map((r) => (r.id === id ? { ...r, result: data } : r)),
+      );
+    } catch (e) {
+      const error = axios.isAxiosError(e)
+        ? e.response?.data?.error || "请求失败，请稍后重试。"
+        : "请求失败，请稍后重试。";
+      setRounds((old) => old.map((r) => (r.id === id ? { ...r, error } : r)));
     } finally {
       setBusy(false);
     }
@@ -116,8 +84,7 @@ export default function AIChat({ wide = false }: { wide?: boolean }) {
       <header className="border-b border-border p-3 space-y-2">
         <div className="flex items-center gap-2">
           <Bot className="w-4 h-4 text-accent-cyan" />
-          <strong className="text-sm">新闻问答实验室</strong>
-          <span className="text-[10px] text-amber-400">非正式演示</span>
+          <strong className="text-sm">新闻问答</strong>
           <button
             aria-label="清空结果"
             disabled={busy}
@@ -128,25 +95,8 @@ export default function AIChat({ wide = false }: { wide?: boolean }) {
           </button>
         </div>
         <p className="text-[11px] text-text-muted">
-          DeepSeek · 本地知识库 · 每次提问使用独立上下文
+          根据新闻资料回答，提供可查阅的来源。每次提问独立处理。
         </p>
-        <div
-          className="grid grid-cols-3 gap-1"
-          role="group"
-          aria-label="问答模式"
-        >
-          {(["direct", "rag", "compare"] as const).map((m) => (
-            <button
-              key={m}
-              disabled={busy}
-              aria-pressed={mode === m}
-              onClick={() => setMode(m)}
-              className={`rounded border px-2 py-2 text-xs ${mode === m ? "border-accent-cyan bg-accent-cyan/10 text-accent-cyan" : "border-border text-text-secondary"}`}
-            >
-              {m === "compare" ? "同时对比" : labels[m]}
-            </button>
-          ))}
-        </div>
         <input
           aria-label="地区筛选"
           placeholder="地区（可选，例如：加沙）"
@@ -181,13 +131,9 @@ export default function AIChat({ wide = false }: { wide?: boolean }) {
       <div className="flex-1 overflow-y-auto p-3 space-y-5" aria-live="polite">
         {!rounds.length && (
           <div className="border-l-2 border-accent-cyan pl-3 py-3 space-y-2">
-            <p className="text-sm">同一个问题，两种回答依据。</p>
+            <p className="text-sm">你想了解哪些新闻动态？</p>
             <p className="text-xs leading-6 text-text-secondary">
-              直接问答使用模型已有知识；RAG
-              问答使用本地资料并展示出处。资料不足时应明确提示，不代表事件没有发生。
-            </p>
-            <p className="text-[11px] text-text-muted">
-              先通过命令行导入新闻知识库，再输入问题。对比模式通常调用两次 API。
+              输入问题，可按地区和报道日期筛选。回答附有来源；资料不足时会明确说明。
             </p>
           </div>
         )}
@@ -196,86 +142,58 @@ export default function AIChat({ wide = false }: { wide?: boolean }) {
             <h3 className="text-sm font-semibold border-b border-border pb-2">
               {round.question}
             </h3>
-            <div
-              className={`grid gap-3 ${wide && round.cards.length > 1 ? "md:grid-cols-2" : ""}`}
-            >
-              {round.cards.map((card) => (
-                <div
-                  key={card.mode}
-                  className="rounded border border-border bg-background-panel p-3 space-y-2"
-                >
-                  <h4 className="text-xs text-accent-cyan">
-                    {labels[card.mode]}
-                  </h4>
-                  {card.error ? (
-                    <p role="alert" className="text-xs text-red-400">
-                      {card.error}
-                    </p>
-                  ) : card.result ? (
-                    <>
-                      <p className="text-xs leading-6 whitespace-pre-wrap">
-                        {card.result.response}
-                      </p>
-                      {card.result.follow_up && (
-                        <p className="text-xs text-amber-400">
-                          请补充：{card.result.follow_up}
-                        </p>
-                      )}
-                      {card.result.sources.map((s) => (
-                        <details
-                          key={s.citationId}
-                          className="border-t border-border pt-2 text-xs"
-                        >
-                          <summary className="cursor-pointer text-text-secondary">
-                            [{s.citationId}] {s.title}{" "}
-                            {card.result?.citations.includes(s.citationId)
-                              ? "· 已引用"
-                              : "· 检索候选"}
-                          </summary>
-                          <p className="mt-2 leading-5">{s.text}</p>
-                          <p className="text-[10px] text-text-muted mt-2">
-                            {s.source} · {s.publishedAt} · BM25{" "}
-                            {s.score.toFixed(3)} · 命中：{s.matched.join("、")}
-                          </p>
-                          {/^https?:\/\//.test(s.url) && (
-                            <a
-                              className="text-accent-cyan underline"
-                              href={s.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              查看来源
-                            </a>
-                          )}
-                        </details>
-                      ))}
-                      <p className="text-[11px] text-text-secondary">
-                        {(card.result.elapsedMs / 1000).toFixed(1)} 秒 · Token{" "}
-                        {card.result.usage?.total_tokens ?? "未返回"} ·{" "}
-                        {statusLabels[card.result.status] || card.result.status}
-                      </p>
-                      <p className="text-[11px] text-text-secondary">
-                        {card.result.model}
-                        {card.result.estimatedCost &&
-                          ` · 估算 $${card.result.estimatedCost.minUsd.toFixed(6)}–$${card.result.estimatedCost.maxUsd.toFixed(6)}`}
-                      </p>
-                      <details className="text-[11px] text-text-secondary">
-                        <summary>实验记录</summary>
-                        <p className="break-all">{card.result.runId}</p>
-                        <p>知识库：{card.result.knowledgeVersion}</p>
-                        <p>
-                          Prompt：{card.result.promptVersion} ·
-                          费用按峰谷价格估算，以平台账单为准。
-                        </p>
-                      </details>
-                    </>
-                  ) : (
-                    <p className="text-xs text-text-muted animate-pulse">
-                      正在生成回答…
+            <div className="rounded border border-border bg-background-panel p-3 space-y-2">
+              {round.error ? (
+                <p role="alert" className="text-xs text-red-400">
+                  {round.error}
+                </p>
+              ) : round.result ? (
+                <>
+                  <p className="text-xs leading-6 whitespace-pre-wrap">
+                    {round.result.response}
+                  </p>
+                  {round.result.follow_up && (
+                    <p className="text-xs text-amber-400">
+                      请补充：{round.result.follow_up}
                     </p>
                   )}
-                </div>
-              ))}
+                  {round.result.sources.map((s) => (
+                    <details
+                      key={s.citationId}
+                      className="border-t border-border pt-2 text-xs"
+                    >
+                      <summary className="cursor-pointer text-text-secondary">
+                        [{s.citationId}] {s.title}{" "}
+                        {round.result?.citations.includes(s.citationId)
+                          ? "· 已引用"
+                          : "· 相关来源"}
+                      </summary>
+                      <p className="mt-2 leading-5">{s.text}</p>
+                      <p className="text-[10px] text-text-muted mt-2">
+                        {s.source} ·{" "}
+                        {new Date(s.publishedAt).toLocaleDateString("zh-CN")}
+                      </p>
+                      {/^https?:\/\//.test(s.url) && (
+                        <a
+                          className="text-accent-cyan underline"
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          查看来源
+                        </a>
+                      )}
+                    </details>
+                  ))}
+                  <p className="text-[11px] text-text-secondary">
+                    {statusLabels[round.result.status] || round.result.status}
+                  </p>
+                </>
+              ) : (
+                <p className="text-xs text-text-muted animate-pulse">
+                  正在生成回答…
+                </p>
+              )}
             </div>
           </article>
         ))}
@@ -302,15 +220,12 @@ export default function AIChat({ wide = false }: { wide?: boolean }) {
           disabled={busy || !query.trim() || Boolean(from && to && from > to)}
         >
           <Send className="w-3 h-3" />
-          {busy ? "生成中…" : mode === "compare" ? "运行两组对比" : "发送问题"}
+          {busy ? "生成中…" : "发送问题"}
         </button>
         {from && to && from > to && (
           <p role="alert" className="text-xs text-red-400">
             开始日期不能晚于结束日期。
           </p>
-        )}
-        {knowledge && (
-          <p className="text-[9px] text-text-muted">知识库版本：{knowledge}</p>
         )}
       </form>
     </section>

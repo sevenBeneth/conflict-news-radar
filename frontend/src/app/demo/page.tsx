@@ -7,7 +7,7 @@ export default function DemoPage() {
           ← 地区冲突资讯雷达
         </a>
         <div className="mt-3 h-[90vh] min-h-[640px] overflow-hidden rounded-lg border border-border bg-background-panel">
-          <AIChat wide />
+          <AIChat />
         </div>
       </div>
     </main>

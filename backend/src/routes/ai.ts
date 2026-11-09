@@ -5,7 +5,6 @@ const router = Router();
 router.post("/analyze", async (req, res, next) => {
   const {
     query,
-    mode = "rag",
     context = {},
     promptVersion = "v3",
   } = req.body ?? {};
@@ -13,7 +12,7 @@ router.post("/analyze", async (req, res, next) => {
     typeof query !== "string" ||
     !query.trim() ||
     query.length > 2000 ||
-    !["direct", "rag"].includes(mode) ||
+    (req.body?.mode !== undefined && req.body.mode !== "rag") ||
     !["v1", "v2", "v3"].includes(promptVersion) ||
     !context ||
     typeof context !== "object" ||
@@ -21,7 +20,7 @@ router.post("/analyze", async (req, res, next) => {
   ) {
     res
       .status(400)
-      .json({ error: "问题须为 1–2000 字，mode 为 direct 或 rag。" });
+      .json({ error: "问题须为 1–2000 字，请使用有效的筛选条件；不支持切换问答模式。" });
     return;
   }
   for (const key of ["region", "from", "to"]) {
@@ -47,7 +46,7 @@ router.post("/analyze", async (req, res, next) => {
   }
   try {
     res.json(
-      await answer({ query: query.trim(), mode, promptVersion, context }),
+      await answer({ query: query.trim(), promptVersion, context }),
     );
   } catch (e) {
     if (e instanceof AnswerError)
