@@ -42,3 +42,6 @@ mysql_data
 tiles
 *.mbtiles
 *.pmtiles
+
+backend/data
+experiments

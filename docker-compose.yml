@@ -75,6 +75,8 @@ services:
       # 构建上下文为仓库根目录：backend 与 workers 共用 shared/ 数据库连接层
       context: .
       dockerfile: backend/Dockerfile
+    volumes:
+      - ./backend/data:/app/data
     container_name: cnr_backend
     restart: unless-stopped
     environment:
@@ -89,6 +91,10 @@ services:
       # 若 Ollama 也在容器内，改为服务名即可。
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      RAG_DATA_DIR: /app/data
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       TZ: UTC
     ports:

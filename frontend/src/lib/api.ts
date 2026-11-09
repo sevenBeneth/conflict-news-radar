@@ -74,7 +74,7 @@ export async function analyzeWithAI(
   query: string,
   context?: { region?: string }
 ): Promise<{ response: string; model: string }> {
-  const { data } = await api.post("/ai/analyze", { query, context });
+  const { data } = await api.post("/ai/analyze", { query, context }, { timeout: 75000 });
   return data;
 }
 

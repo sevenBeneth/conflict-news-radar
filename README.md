@@ -1,5 +1,7 @@
 # 地区冲突资讯雷达 · Conflict News Radar
 
+> 新闻问答使用本地知识库检索与 DeepSeek 云端生成，提供来源引用及地区、日期筛选。配置与启动见 [问答说明](experiments/README.md)；下文 Ollama 描述为原版架构背景。
+
 面向个人用户的**本地部署**地区冲突资讯聚合与可视化工具。
 
 它把分散、无地理标注的中文新闻，转成带**时间、地点、摘要与原文链接**的可视化地图，
@@ -363,3 +365,13 @@ MySQL 官方镜像的 entrypoint 执行初始化脚本时，`mysql` 客户端的
 ## 许可
 
 MIT License — 详见 [LICENSE](LICENSE)。
+
+## 新闻问答
+
+新闻问答使用本地文本切分与 BM25 知识库、DeepSeek 云端生成，每次提问只发起一次模型请求。
+启动、资料准备与验证说明见 [experiments/README.md](experiments/README.md)。
+主界面与独立页面 `/demo` 均提供新闻问答；独立问答服务使用 `npm run dev:demo --prefix backend`，无需数据库。
+
+## 实验6 新闻统计 Agent
+
+新增单Agent与运行时Harness，支持本地新闻查询、媒体分组统计、确认后保存简报。运行方式和权限边界见 [实验6说明](experiments/experiment6/README.md)。

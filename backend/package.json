@@ -7,7 +7,13 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "dev": "tsx watch src/app.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "rag": "tsx src/scripts/rag.ts",
+    "test:rag": "tsx --test src/services/rag.test.ts",
+    "dev:demo": "tsx watch src/demo.ts",
+    "agent": "tsx src/scripts/agent.ts",
+    "test:agent": "tsx --test src/agent/harness.test.ts",
+    "agent:verify": "tsx src/scripts/agent-verify.ts"
   },
   "dependencies": {
     "axios": "^1.7.7",
@@ -33,4 +39,3 @@
     "node": ">=20"
   }
 }
-

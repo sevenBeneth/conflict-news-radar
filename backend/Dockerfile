@@ -24,7 +24,7 @@ COPY backend/package*.json ./
 RUN npm install
 
 # 复制共享层与后端源码（共享层由 scripts/sync-shared.ps1 同步，此处直接取源）
-COPY shared/ ./shared/
+COPY shared/ ./src/shared/
 COPY backend/ ./
 
 RUN npm run build
